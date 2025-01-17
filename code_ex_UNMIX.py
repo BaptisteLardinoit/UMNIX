@@ -96,7 +96,7 @@ def interior_point(x0, G, d, A, b, y, D, iter_max):
         delta_lambda_ = delta[n:n+m]
         delta_s = delta[n+m:]
 
-        # Compute alpha to ensure feasibility, all(y) > 0 and all(lambda_) > 0
+        # Compute alpha to ensure feasibility, all(s) > 0 and all(lambda_) > 0
         pos_idx_s = np.where(delta_s.ravel() > 0)[0] # indeces that could push y down
         if pos_idx_s.size == 0:
             alpha_max_s = np.inf
@@ -116,7 +116,7 @@ def interior_point(x0, G, d, A, b, y, D, iter_max):
         #alpha_d = min(alpha_coef * alpha_max_lambda, alpha_s)
         alpha_max = min(alpha_max_s, alpha_max_lambda)
         if not np.isinf(alpha_max):
-            alpha = alpha_coef * alpha_max
+            alpha = alpha_coef * alpha_max # To avoid constraint equality
 
         # print(f"{y=}")
 
@@ -194,6 +194,7 @@ def exemple1():
     x_star, slack, lambda_, x_list, slack_list, lambda_list, rd_list, rb_list, rc_list, alpha_list, err_quadra_list, err_norm_list = interior_point(x0=x0_, G=(D.T).dot(D), d=(-(D.T).dot(y)).reshape(-1,1), A=A_, b=b_, y=y, D=D, iter_max = 50)
     
     #x_star[0] = 0.5
+
     err = 0.5 * np.linalg.norm(y.reshape(-1,1)-D@x_star, ord=2)**2
     err_gt = 0.5 * np.linalg.norm(y.reshape(-1,1)-D@x_gt, ord=2)**2
     print('err ', err) # value of the objective function at this point
