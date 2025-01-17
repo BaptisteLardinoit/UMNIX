@@ -48,6 +48,8 @@ def interior_point(x0, G, d, A, b, y, D, iter_max):
     # Initialisation #
     ##################
 
+    # Test
+
     # Get Constraint shape
     m, n = A.shape # m number of inequalities, n dimension of state space
 
