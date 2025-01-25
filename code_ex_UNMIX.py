@@ -3,6 +3,8 @@ from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from scipy.io import loadmat
 from itertools import cycle
+from scipy.sparse import csc_array
+from Interior_Point import interior_point2
 
 """
 File: code_ex_UNMIX.py
@@ -31,7 +33,7 @@ def generate_x(K, P, a_min=0.1):
     x[rd_idx] = x_nz
     return x
 
-def interior_point(x0, G, d, A, b, y, D, iter_max):
+def interior_point(x0, G, d, A, b, y, D, iter_max, do_debug=False):
     """
     Compute a interior point method (with a Newton algorithm): Solve min Q(x) = 0.5 x.T*G*x + x.T*d subject to a.Tx = b and a.T*x>=b 
 
@@ -76,21 +78,33 @@ def interior_point(x0, G, d, A, b, y, D, iter_max):
     iter = 0
     # iter_max = params["iter_max"]
 
+    # TODO: csc_array and csr_array
+    Jacobienne = np.block([[G, -A.T , np.zeros((n, m))],
+                               [A, np.zeros((m, m)), -np.eye(m)],
+                               [np.zeros((m,n)), np.diag(s[:, 0]), np.diag(lambda_[:, 0])]]) #y[:, 0]
+        
+
     while iter < iter_max:
         # Calcul des résidus
         mu = (1 / m) * ((s.T).dot(lambda_)) # duality measure
         rd = G.dot(x) - A.T.dot(lambda_) + d # stationarité
-        rb = A.dot(x) - s - b
+        #TODO: transpose_A = A.T -> A.T*u = u[:n-2, :n-2] + (u[n-1]+u[n])*np.ones(n-2,2) 
+        rb = A.dot(x) - s - b #TODO: Sum = np.sum(x); Ax -> np.block([Sum, Sum, x])
         rc = lambda_ * s - sigma * mu 
         residus = np.block([[rd],
                             [rb],
                             [rc]])
-    
-        Jacobienne = np.block([[G, -A.T , np.zeros((n, m))],
-                               [A, np.zeros((m, m)), -np.eye(m)],
-                               [np.zeros((m,n)), np.diag(s[:, 0]), np.diag(lambda_[:, 0])]]) #y[:, 0]
+
+        #TODO: Don't build each time the full Jacobienne
+        # Jacobienne[n+m+1, n+m+...] =
+        # Jacobienne = np.block([[G, -A.T , np.zeros((n, m))],
+        #                     [A, np.zeros((m, m)), -np.eye(m)],
+        #                     [np.zeros((m,n)), np.diag(s[:, 0]), np.diag(lambda_[:, 0])]]) #y[:, 0]
         
-        delta = np.linalg.solve(Jacobienne, residus)
+        Jacobienne[n+m:, n:n+m] = np.diag(s[:, 0])
+        Jacobienne[n+m,n+m:] = np.diag(np.diag(lambda_[:, 0]))
+
+        delta = np.linalg.solve(Jacobienne, residus) ## TODO Test with scipy sparse
 
         delta_x = delta[:n]
         delta_lambda_ = delta[n:n+m]
@@ -131,25 +145,26 @@ def interior_point(x0, G, d, A, b, y, D, iter_max):
         # print(f"{y=}")
 
         # Debugging
-        x_list.append(x)
-        slack_list.append(s)
-        lambda_list.append(lambda_)
-        rd_list.append(np.linalg.norm(rd))
-        rb_list.append(np.linalg.norm(rb))
-        rc_list.append(np.linalg.norm(rc))
-        alpha_list.append(alpha)
+        if do_debug:
+            x_list.append(x)
+            slack_list.append(s)
+            lambda_list.append(lambda_)
+            rd_list.append(np.linalg.norm(rd))
+            rb_list.append(np.linalg.norm(rb))
+            rc_list.append(np.linalg.norm(rc))
+            alpha_list.append(alpha)
 
-        err_quadra = 0.5 * ((x.T)@G)@x + (d.T)@x + 0.5 * (y.T)@y
-        err_norm = 0.5 * np.linalg.norm(y.reshape(-1,1)-D@x, ord=2)**2
-        err_quadra_list.append(err_quadra)
-        err_norm_list.append(err_norm)
+            err_quadra = 0.5 * ((x.T)@G)@x + (d.T)@x + 0.5 * (y.T)@y
+            err_norm = 0.5 * np.linalg.norm(y.reshape(-1,1)-D@x, ord=2)**2
+            err_quadra_list.append(err_quadra)
+            err_norm_list.append(err_norm)
 
 
-        if iter % 10:
-            print(iter)
-            #print(f"Jacobienne.shape : {Jacobienne.shape}; residus.shape : {residus.shape}")
-            #print(f"rd.shape : {rd.shape}, rb.shape : {rb.shape}, rc.shape : {rc.shape}")
-            #print(f"delta_x.shape : {delta_x.shape}, delta_y.shape : {delta_y.shape}, delta_lambda_.shape : {delta_lambda_.shape}")
+        # if iter % 10:
+        #     print(iter)
+        #     #print(f"Jacobienne.shape : {Jacobienne.shape}; residus.shape : {residus.shape}")
+        #     #print(f"rd.shape : {rd.shape}, rb.shape : {rb.shape}, rc.shape : {rc.shape}")
+        #     #print(f"delta_x.shape : {delta_x.shape}, delta_y.shape : {delta_y.shape}, delta_lambda_.shape : {delta_lambda_.shape}")
         x_star = x_list[-1]
 
         iter += 1
@@ -158,11 +173,11 @@ def interior_point(x0, G, d, A, b, y, D, iter_max):
 
 def exemple1():
     ### Parameters
-    P = 111 # number of spectra in the dictionary
+    P = 110 # number of spectra in the dictionary
     D, wv = load_A_and_wavelengths(P) # A has N (=113 wavelengths) rows, P columns (spectra)
     N = D.shape[0]
-    K = 4 # sparsity --> number of nonzero coefficient i.e. activated spectra
-    sigma = 0.013 #1e-100 # noise amplitude, for instance 0.013 or 1e-100 (near 0, SNR about 2000 dB)
+    K = 3 # sparsity --> number of nonzero coefficient i.e. activated spectra
+    sigma = 0.0164 #1e-100 # noise amplitude, for instance 0.013 or 1e-100 (near 0, SNR about 2000 dB)
 
     do_simple_case = False
     if do_simple_case:
@@ -191,60 +206,23 @@ def exemple1():
     b_ = np.block([[1],[-1],[np.zeros((P,1))]])
     x0_ = (1/P)*np.ones((P,1))
     # params = {"iter_max":50}
-    x_star, slack, lambda_, x_list, slack_list, lambda_list, rd_list, rb_list, rc_list, alpha_list, err_quadra_list, err_norm_list = interior_point(x0=x0_, G=(D.T).dot(D), d=(-(D.T).dot(y)).reshape(-1,1), A=A_, b=b_, y=y, D=D, iter_max = 50)
-    
-    #x_star[0] = 0.5
+    debug = False
+    iter_max = 500
+    tol = 1e-5
+    if debug:
+        x_star, slack, lambda_, x_list, slack_list, lambda_list, rd_list, rb_list, rc_list, alpha_list, err_quadra_list = interior_point2(x0=x0_, G=(D.T).dot(D), d=(-(D.T).dot(y)).reshape(-1,1), A=A_, b=b_, y=y, D=D, tol=tol , iter_max=iter_max, do_debug=debug)
+        plt.figure()
+        plt.plot(np.squeeze(err_quadra_list), label='error')
+        plt.title('error evolution')
+        plt.xlabel('iter')
+        plt.legend()
+    else:
+        x_star = interior_point2(x0=x0_, G=(D.T).dot(D), d=(-(D.T).dot(y)).reshape(-1,1), A=A_, b=b_, y=y, D=D, tol=tol , iter_max=iter_max, do_debug=debug)
 
     err = 0.5 * np.linalg.norm(y.reshape(-1,1)-D@x_star, ord=2)**2
     err_gt = 0.5 * np.linalg.norm(y.reshape(-1,1)-D@x_gt, ord=2)**2
-    print('err ', err) # value of the objective function at this point
-    print('err_gt', err_gt) # value of the objective function at this point
-
-    plt.figure()
-    plt.plot(np.squeeze(err_quadra_list), label='w/ quadra')
-    plt.plot(np.squeeze(err_norm_list), label='w/ norm')
-    plt.title('err')
-    plt.legend()
-
-    # ## Visualise function
-    # do_visu = False
- 
-
-    # if do_visu:
-
-    #     # Parameters
-    #     n=20
-    #     p=0.4
-
-    #     colors = plt.cm.jet(np.linspace(0,1,115))# Initialize holder for trajectories
-    #     xtraj=np.zeros(n+1,float)
-        
-    #     plt.figure()
-    #     for i, slack in enumerate(slack_list):
-    #         plt.plot(slack.squeeze(), color=colors[i])
-        
-    #     plt.title('Slack evolution')
-    #     plt.show()
-
-    #     stop
-    #     plt.plot(np.array(lambda_list[:,0]).squeeze(), label='lambda',  color='g')
-    #     plt.plot(alpha_list[0],  label='alpha',  color='b')
-    #     plt.title("Evolution of y and lambda")
-    #     plt.legend()
-
-    #     plt.subplot(312)
-    #     plt.plot(rd_list)
-    #     plt.plot(rb_list)
-    #     plt.plot(rc_list)
-    #     plt.title('Evolution of the norm of residus'    )
-    #     plt.legend()
-
-    #     plt.subplot(313)
-    #     plt.plot(np.arange(len(err_list)), err_list)
-    #     plt.title('err')
-
-    #     plt.tight_layout()
-    #     plt.show()
+    print('err:\n', err) # value of the objective function at this point
+    print('err_gt: \n', err_gt) # value of the objective function at this point
 
     ### Plots
     plt.figure(figsize=(9, 9))
