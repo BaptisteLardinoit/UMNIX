@@ -4,7 +4,7 @@ from matplotlib.ticker import MaxNLocator
 from scipy.io import loadmat
 from itertools import cycle
 from scipy.sparse import csc_array
-from Interior_Point import interior_point2
+from Interior_Point import interior_point2, interior_point3
 
 """
 File: code_ex_UNMIX.py
@@ -173,17 +173,17 @@ def interior_point(x0, G, d, A, b, y, D, iter_max, do_debug=False):
 
 def exemple1():
     ### Parameters
-    P = 110 # number of spectra in the dictionary
-    D, wv = load_A_and_wavelengths(P) # A has N (=113 wavelengths) rows, P columns (spectra)
-    N = D.shape[0]
+    N = 110 # number of spectra in the dictionary
+    D, wv = load_A_and_wavelengths(N) # D has L (=113 wavelengths) rows, N columns (spectra)
+    L = D.shape[0]
     K = 3 # sparsity --> number of nonzero coefficient i.e. activated spectra
     sigma = 0.0164 #1e-100 # noise amplitude, for instance 0.013 or 1e-100 (near 0, SNR about 2000 dB)
 
     do_simple_case = False
     if do_simple_case:
-        P = 30
-        D, wv = load_A_and_wavelengths(P)
-        N = D.shape[0]
+        N = 35
+        D, wv = load_A_and_wavelengths(N)
+        L = D.shape[0]
         K = 4
         sigma = 1e-100
 
@@ -192,32 +192,38 @@ def exemple1():
     np.random.seed(seed)
 
     ### Data generation
-    x_gt = generate_x(K, P) # ground truth (K non-zero values choose between P spectras).
+    x_gt = generate_x(K, N) # ground truth (K non-zero values choose between P spectras).
     y_gt = D@x_gt # noiseless signal
-    y = y_gt + sigma*np.random.randn(N)
+    y = y_gt + sigma*np.random.randn(L)
     y[y < 0] = 0. # even with strong noise, the sensor will never detect a negative amount of photons
-    SNR = 10*np.log10(np.linalg.norm(y_gt)**2/(N*sigma**2))
+    SNR = 10*np.log10(np.linalg.norm(y_gt)**2/(L*sigma**2))
 
     ### Computing a solution
 
     ##TODO: Interior Point
     #x_star = np.linalg.inv(D.T @ D) @ D.T @ y # Least square solution
-    A_ = np.block([[np.ones((2, P))],[np.eye(P)]])
-    b_ = np.block([[1],[-1],[np.zeros((P,1))]])
-    x0_ = (1/P)*np.ones((P,1))
+    # A_ = np.block([[np.ones((2, N))],[np.eye(N)]])
+    # b_ = np.block([[1],[-1],[np.zeros((N,1))]])
+    A_ = np.eye(N)
+    b_ = np.zeros((N,1))
+    A_bar_ = np.ones((1,N))
+    b_bar_ = np.array([1])
+    G_ = D.T@D
+    d_ = -(D.T@y).reshape(-1,1)
+    x0_ = (1/N)*np.ones((N,1))
     # params = {"iter_max":50}
-    debug = False
-    iter_max = 500
+    debug = True
+    iter_max = 100
     tol = 1e-5
     if debug:
-        x_star, slack, lambda_, x_list, slack_list, lambda_list, rd_list, rb_list, rc_list, alpha_list, err_quadra_list = interior_point2(x0=x0_, G=(D.T).dot(D), d=(-(D.T).dot(y)).reshape(-1,1), A=A_, b=b_, y=y, D=D, tol=tol , iter_max=iter_max, do_debug=debug)
+        x_star, slack, lambda_, x_list, slack_list, lambda_list, rd_list, rb_list, rc_list, alpha_list, err_quadra_list = interior_point3(x0=x0_, G=G_, d=d_, A=A_, b=b_, A_bar=A_bar_, b_bar=b_bar_, y=y, D=D, tol=tol , iter_max=iter_max, do_debug=debug)
         plt.figure()
         plt.plot(np.squeeze(err_quadra_list), label='error')
         plt.title('error evolution')
         plt.xlabel('iter')
         plt.legend()
     else:
-        x_star = interior_point2(x0=x0_, G=(D.T).dot(D), d=(-(D.T).dot(y)).reshape(-1,1), A=A_, b=b_, y=y, D=D, tol=tol , iter_max=iter_max, do_debug=debug)
+        x_star = interior_point3(x0=x0_, G=G_, d=d_, A=A_, b=b_, A_bar=A_bar_, b_bar=b_bar_, y=y, D=D, tol=tol , iter_max=iter_max, do_debug=debug)
 
     err = 0.5 * np.linalg.norm(y.reshape(-1,1)-D@x_star, ord=2)**2
     err_gt = 0.5 * np.linalg.norm(y.reshape(-1,1)-D@x_gt, ord=2)**2
@@ -244,7 +250,7 @@ def exemple1():
     markerline, stemline, _ = plt.stem(x_cut, "g--", markerfmt="x", label="Truth"); plt.setp(stemline, linewidth=0.5); plt.setp(markerline, markersize=8)
     markerline, _, _ = plt.stem(x_star_cut, linefmt="r--", label="Solution found");  plt.setp(markerline, markersize=5)
     plt.title("Activated columns and their amplitudes, err = %.3e"%err); plt.ylabel("Coefficients values"); plt.xlabel("Index"); plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-    plt.xlim([-0.5, P-0.5]); ax = plt.gca(); ax.xaxis.set_major_locator(MaxNLocator(integer=True)); plt.xticks(list(set(list(np.where(x_star>=1e-15)[0])+list(np.where(x_gt>1e-15)[0]) ))) # show xticks for included spectra only
+    plt.xlim([-0.5, N-0.5]); ax = plt.gca(); ax.xaxis.set_major_locator(MaxNLocator(integer=True)); plt.xticks(list(set(list(np.where(x_star>=1e-15)[0])+list(np.where(x_gt>1e-15)[0]) ))) # show xticks for included spectra only
     plt.tight_layout()
     plt.show()
     pass
